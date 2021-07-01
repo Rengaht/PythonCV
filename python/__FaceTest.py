@@ -5,6 +5,23 @@ from tensorflow.keras.preprocessing import image
 from __GenderTest import *
 import time
 
+from __ObjectDetect import *
+
+from pythonosc import udp_client
+from pythonosc import osc_message_builder
+from pythonosc import osc_bundle_builder
+
+
+HEIGHT, WIDTH = (480, 640)
+
+#-----------------------------
+# osc initialization
+
+IP="127.0.0.1"
+PORT=5555
+
+client=udp_client.SimpleUDPClient(IP, PORT)
+
 
 #-----------------------------
 #opencv initialization
@@ -29,6 +46,9 @@ gender_model=genderModel()
 output_indexes = np.array([i for i in range(0, 101)])
 
 prev_frame_time=0
+
+
+# obj_model=configYoloModel()
 
 
 while(True):
@@ -84,9 +104,28 @@ while(True):
 			if gender_index == 0: gender = "F"
 			else: gender = "M"
 
-		except Excetion as e:
+		except Exception as e:
 			print("excetion", str(e))
 
+		#-------------------------
+		#send osc
+		client.send_message("/face", [emotion, gender, apparent_age])
+
+		#--------------------------
+
+
+		# obj detect
+		frame=cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+		
+		frame_size = frame.shape[:2]
+		image_data = cv2.resize(frame, (416, 416))
+		image_data = image_data / 255.
+		image_data = image_data[np.newaxis, ...].astype(np.float32)
+		object_pred=detectObject(image_data)
+		# print(object_pred)
+		img = utils.draw_bbox(img, object_pred)
+
+		SendObjOSC(client, object_pred,WIDTH,HEIGHT)
 
 		#fps
 		new_frame_time = time.time()
