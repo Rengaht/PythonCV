@@ -3,12 +3,14 @@
 import logging
 import sys
 import numpy as np
-from keras.models import Model
-from keras.layers import Input, Activation, add, Dense, Flatten, Dropout
-from keras.layers.convolutional import Conv2D, AveragePooling2D
-from keras.layers.normalization import BatchNormalization
-from keras.regularizers import l2
-from keras import backend as K
+# from keras.models import Model
+from tensorflow import keras
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Input, Activation, add, Dense, Flatten, Dropout
+from tensorflow.python.keras.layers.convolutional import Conv2D, AveragePooling2D
+from tensorflow.python.keras.layers.normalization import BatchNormalization
+from tensorflow.python.keras.regularizers import l2
+from tensorflow.keras import backend as K
 
 sys.setrecursionlimit(2 ** 20)
 np.random.seed(2 ** 10)
