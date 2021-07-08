@@ -133,9 +133,9 @@ while(True):
 		prev_frame_time = new_frame_time
 		
 		#write emotion text above rectangle
-		output_attr=emotion+" / "+gender+" / "+apparent_age
+		# output_attr=emotion+" / "+gender+" / "+apparent_age
 
-		cv2.putText(img, output_attr, (int(x), int(y)), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2)
+		# cv2.putText(img, output_attr, (int(x), int(y)), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2)
 		
 		cv2.putText(img, str(fps), (20,20), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255), 2)
 		#process on detected face end

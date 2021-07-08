@@ -1,2 +1,4 @@
 *.h5
 model/yolov4-416/variables/variables.data-00000-of-00001
+*.hdf5
+*.weights
