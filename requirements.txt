@@ -1,0 +1,12 @@
+Keras
+opencv-python
+numpy
+setuptools
+scipy
+tensorflow-gpu
+keras_applications
+tensorflow-model-optimization
+tensorflow-addons
+matplotlib
+pillow
+imgaug
