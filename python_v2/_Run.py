@@ -1,9 +1,16 @@
 import sys
 sys.path.append('../Library')
 
+
+
 import argparse
-import SpoutSDK
 import pygame
+import threading
+import time
+import SpoutSDK
+
+from queue import Queue
+
 from pygame.locals import *
 from OpenGL.GL import *
 from OpenGL.GLU import *
@@ -12,14 +19,16 @@ from pythonosc import udp_client
 from pythonosc import osc_message_builder
 from pythonosc import osc_bundle_builder
 
+
 from realtime_demo import *
 from yolo import *
 
-
+#-----------------------------
 
 DETECT_FACE=True
 DETECT_OBJ=False
 USE_SPOUT=True
+
 
 #-----------------------------
 # osc initialization
@@ -44,6 +53,56 @@ yolo_config={
 }
 
 #-----------------------------
+
+class DetectFace(threading.Thread):
+	def __init__(self):
+		threading.Thread.__init__(self, queue)
+		print("Start Face Thread...")
+		self.face_detect = FaceCV(depth=16, width=8)
+		self.queue=queue
+
+	def run(self):
+		frame=self.queue.get()
+		time.sleep(1)
+		faces, ages, genders=self.face_detect.detect_face_frame(frame)
+
+		for i, face in enumerate(faces):
+			gender = "F" if genders[i][0]>0.5 else "M"
+			label = f"{int(ages[i])},{gender}"
+			print(f"get face : {age[i]} {gender}")
+			# draw_predict(frame, (face[0], face[1]), (face[2], face[3]), label,(255,0,0))
+			# client.send_message("/face", [int(face[0]),int(face[1]),int(face[2]),int(face[3]),gender, ages[i]])
+
+class DetectObj(threading.Thread):
+	def __init__(self):
+		threading.Thread.__init__(self, queue)
+		print("Start YOLO Thread...")
+		self.yolo = YOLO_np(yolo_config)
+		self.queue=queue
+
+	def run(self):
+		frame=self.queue.get()
+		
+		image = Image.fromarray(frame)
+		boxes, classes, scores=yolo.detect_image(image)
+
+		class_count={}
+		for i in range(classes):
+			ind=int(classes[i])
+			if class_count.get(ind)==None:
+				class_count[ind]=1
+			else:
+				class_count[ind]=class_count[ind]+1
+
+		for i, box in enumerate(boxes):
+			label = f"{classes[i]}, {scores[i]}"
+			# draw_predict(frame, (box[0], box[1]),(box[2]-box[0],box[3]-box[1]), label, (0,0,255))
+			
+			data=[classes[i], int(box[0]), int(box[2]),int(box[1]), int(box[3]), float(score[i]), int(i), int(class_count[i])]
+			print(f"get obj: {data}")
+			# client.send_message("/detect", [classes[i], age[i]])
+
+		time.sleep(1)
 
 
 def draw_predict(img, point, size, label, color):
@@ -90,11 +149,22 @@ def main():
 		glBindTexture(GL_TEXTURE_2D, 0)
 
 
-	if DETECT_FACE:
-		face_detect = FaceCV(depth=16, width=8)
+	# if DETECT_FACE:
+	# 	face_detect = FaceCV(depth=16, width=8)
 
-	if DETECT_OBJ:
-		yolo = YOLO_np(yolo_config)
+	# if DETECT_OBJ:
+	# 	yolo = YOLO_np(yolo_config)
+
+	threads=[]
+	q1=Queue()
+	threads.append(DetectFace(q1))
+	threads[0].start()
+	time.sleep(0.1)
+
+	q2=Queue()
+	threads.append(DetectObj(q2))
+	threads[1].start()
+	time.sleep(0.1)
 
 	accum_time = 0
 	curr_fps = 0
@@ -114,35 +184,39 @@ def main():
 			ret, frame = video_capture.read()
 		
 		if DETECT_FACE:
-			faces, ages, genders=face_detect.detect_face_frame(frame)
+			thread[0].queue.put(frame)
+			# faces, ages, genders=face_detect.detect_face_frame(frame)
 
-			for i, face in enumerate(faces):
-				gender = "F" if genders[i][0]>0.5 else "M"
-				label = f"{int(ages[i])},{gender}"
-				draw_predict(frame, (face[0], face[1]), (face[2], face[3]), label,(255,0,0))
-				client.send_message("/face", [int(face[0]),int(face[1]),int(face[2]),int(face[3]),gender, ages[i]])
+			# for i, face in enumerate(faces):
+			# 	gender = "F" if genders[i][0]>0.5 else "M"
+			# 	label = f"{int(ages[i])},{gender}"
+			# 	draw_predict(frame, (face[0], face[1]), (face[2], face[3]), label,(255,0,0))
+			# 	client.send_message("/face", [int(face[0]),int(face[1]),int(face[2]),int(face[3]),gender, ages[i]])
 			# print(f"Find {len(faces)} faces")
 		
 		if DETECT_OBJ:
-			image = Image.fromarray(frame)
-			boxes, classes, scores=yolo.detect_image(image)
+			thread[1].queue.put(frame)
+			# image = Image.fromarray(frame)
+			# boxes, classes, scores=yolo.detect_image(image)
 
-			class_count={}
-			for i in range(classes):
-				ind=int(classes[i])
-				if class_count.get(ind)==None:
-					class_count[ind]=1
-				else:
-					class_count[ind]=class_count[ind]+1
+			# class_count={}
+			# for i in range(classes):
+			# 	ind=int(classes[i])
+			# 	if class_count.get(ind)==None:
+			# 		class_count[ind]=1
+			# 	else:
+			# 		class_count[ind]=class_count[ind]+1
 
-			for i, box in enumerate(boxes):
-				label = f"{classes[i]}, {scores[i]}"
-				draw_predict(frame, (box[0], box[1]),(box[2]-box[0],box[3]-box[1]), label, (0,0,255))
+			# for i, box in enumerate(boxes):
+			# 	label = f"{classes[i]}, {scores[i]}"
+			# 	draw_predict(frame, (box[0], box[1]),(box[2]-box[0],box[3]-box[1]), label, (0,0,255))
 				
-				data=[classes[i], int(box[0]), int(box[2]),int(box[1]), int(box[3]), float(score[i]), int(i), int(class_count[i])]
-				client.send_message("/detect", [classes[i], age[i]])
+			# 	data=[classes[i], int(box[0]), int(box[2]),int(box[1]), int(box[3]), float(score[i]), int(i), int(class_count[i])]
+			# 	client.send_message("/detect", [classes[i], age[i]])
 			# print(f"#obj={len(boxes)}")
 
+		for t in threads:
+			t.join()
 
 		# fps
 		curr_time = timer()
