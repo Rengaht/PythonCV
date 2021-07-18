@@ -124,7 +124,7 @@ class FaceCV(object):
         video_capture.release()
         cv2.destroyAllWindows()
 
-    def detect_face_frame(self, inputs):
+    def detect_face_frame(self, frame, faces):
         
         # gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         # faces = self.face_cascade.detectMultiScale(
@@ -133,7 +133,7 @@ class FaceCV(object):
         #     minNeighbors=10,
         #     minSize=(self.face_size, self.face_size)
         # )
-        frame, faces=inputs
+        # frame, faces=inputs
 
         # placeholder for cropped faces
         face_imgs = np.empty((len(faces), self.face_size, self.face_size, 3))
