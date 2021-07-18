@@ -371,7 +371,7 @@ def main():
 						# print(result)
 						label=f"{result['tag']}-{round(result['score'],2)} {result['id']}/{result['count']}"
 
-						client.send_message('/detect', result)
+						client.send_message('/detect', [result['tag'],result['rect'][0],result['rect'][1],result['rect'][2],result['rect'][3],result['score'],result['id'],result['count']])
 						DrawPredict(frame, result['rect'], label, (255,255,0))
 				# detectObj.result.clear()
 					person=(filter(lambda x: x['tag']=='person', tmp))
@@ -408,6 +408,7 @@ def main():
 						print(f"id {result['id']} => {p['id']}")
 						result['id']=p['id']
 
+				client.send_message('/face', [rect[0],rect[1],rect[2],rect[3], result['gender'],result['age'],tmp_emotion[i]['emotion'],result['id']])
 				DrawPredict(frame, rect, label, (0,255,0))
 
 
