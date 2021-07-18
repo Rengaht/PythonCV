@@ -7,9 +7,11 @@ import argparse
 import pygame
 import threading
 import time
-import SpoutSDK
+import multiprocessing
+# import SpoutSDK
 
-from queue import Queue
+from queue import Queue, LifoQueue
+from multiprocessing import Pipe, Process
 
 from pygame.locals import *
 from OpenGL.GL import *
@@ -19,6 +21,8 @@ from pythonosc import udp_client
 from pythonosc import osc_message_builder
 from pythonosc import osc_bundle_builder
 
+from tensorflow.keras.models import model_from_json
+from tensorflow.keras.preprocessing import image
 
 from realtime_demo import *
 from yolo import *
@@ -26,8 +30,12 @@ from yolo import *
 #-----------------------------
 
 DETECT_FACE=True
-DETECT_OBJ=False
-USE_SPOUT=True
+DETECT_EMOTION=True
+DETECT_OBJ=True
+
+USE_THREAD=True
+
+USE_SPOUT=False
 
 
 #-----------------------------
@@ -54,55 +62,123 @@ yolo_config={
 
 #-----------------------------
 
+face_cascade = cv2.CascadeClassifier('../model/haarcascade_frontalface_default.xml')
+
+
+#-----------------------------
+
+print_lock = threading.Lock()
+result_lock=threading.Lock()
+
+
+
 class DetectFace(threading.Thread):
-	def __init__(self):
-		threading.Thread.__init__(self, queue)
-		print("Start Face Thread...")
+	def __init__(self,queue):
+		threading.Thread.__init__(self)
+		print("Init Face Detect...")
 		self.face_detect = FaceCV(depth=16, width=8)
+		self.result=LifoQueue()
 		self.queue=queue
 
 	def run(self):
-		frame=self.queue.get()
-		time.sleep(1)
-		faces, ages, genders=self.face_detect.detect_face_frame(frame)
+		while True:
+			input_faces=self.queue.get()
+			if input_faces is None:
+				continue
 
-		for i, face in enumerate(faces):
-			gender = "F" if genders[i][0]>0.5 else "M"
-			label = f"{int(ages[i])},{gender}"
-			print(f"get face : {age[i]} {gender}")
-			# draw_predict(frame, (face[0], face[1]), (face[2], face[3]), label,(255,0,0))
-			# client.send_message("/face", [int(face[0]),int(face[1]),int(face[2]),int(face[3]),gender, ages[i]])
+			faces, ages, genders=self.face_detect.detect_face_frame(input_faces)
+
+			result=[]
+			for i, face in enumerate(faces):
+				gender = "F" if genders[i][0]>0.5 else "M"
+				label = f"{int(ages[i])},{gender}"
+				# with print_lock:
+				# 	print(f"get face : {ages[i]} {gender}")
+
+				data=[int(face[0]),int(face[1]),int(face[2]),int(face[3]),gender, ages[i],i]
+				result.append(data)
+			
+			self.result.put(result)
+
+class DetectEmotion(threading.Thread):
+	def __init__(self,queue):
+		threading.Thread.__init__(self)
+		print("Init Emotion Detect...")
+		self.emotion_model = model_from_json(open("../model/facial_expression_model_structure.json", "r").read())
+		self.emotion_model.load_weights('../model/facial_expression_model_weights.h5') #load weights
+		self.emotions = ('angry', 'disgust', 'fear', 'happy', 'sad', 'surprise', 'neutral')
+		# self.face_cascade = cv2.CascadeClassifier('../model/haarcascade_frontalface_default.xml')
+		self.queue=queue
+		self.result=LifoQueue()
+
+	def run(self):
+		while True:
+			(frame, faces)=self.queue.get()
+			if frame is None:
+				continue
+			# print(f"emotion to detect= {len(faces)}")
+			result=[]
+			for i, (x,y,w,h) in enumerate(faces):
+				
+				detected_face = frame[int(y):int(y+h), int(x):int(x+w)] #crop detected face
+				detected_face = cv2.cvtColor(detected_face, cv2.COLOR_BGR2GRAY) #transform to gray scale
+				detected_face = cv2.resize(detected_face, (48, 48)) #resize to 48x48
+				
+				img_pixels = image.img_to_array(detected_face)
+				img_pixels = np.expand_dims(img_pixels, axis = 0)
+				
+				img_pixels /= 255 #pixels are in scale of [0, 255]. normalize all pixels in scale of [0, 1]
+				
+				emotion_predictions = self.emotion_model.predict(img_pixels) #store probabilities of 7 expressions
+				
+				#find max indexed array 0: angry, 1:disgust, 2:fear, 3:happy, 4:sad, 5:surprise, 6:neutral
+				max_index = np.argmax(emotion_predictions[0])
+				emotion = self.emotions[max_index]
+				data=[int(x), int(y),int(w), int(h), emotion, max_index,i]
+				result.append(data)
+
+			self.result.put(result)
+			# print(f"in thread: {self.result}")
 
 class DetectObj(threading.Thread):
-	def __init__(self):
-		threading.Thread.__init__(self, queue)
+	def __init__(self, queue):
+		threading.Thread.__init__(self)
 		print("Start YOLO Thread...")
 		self.yolo = YOLO_np(yolo_config)
 		self.queue=queue
+		self.output=LifoQueue()
+		self.result=[]
 
 	def run(self):
-		frame=self.queue.get()
-		
-		image = Image.fromarray(frame)
-		boxes, classes, scores=yolo.detect_image(image)
-
-		class_count={}
-		for i in range(classes):
-			ind=int(classes[i])
-			if class_count.get(ind)==None:
-				class_count[ind]=1
-			else:
-				class_count[ind]=class_count[ind]+1
-
-		for i, box in enumerate(boxes):
-			label = f"{classes[i]}, {scores[i]}"
-			# draw_predict(frame, (box[0], box[1]),(box[2]-box[0],box[3]-box[1]), label, (0,0,255))
+		while True:
 			
-			data=[classes[i], int(box[0]), int(box[2]),int(box[1]), int(box[3]), float(score[i]), int(i), int(class_count[i])]
-			print(f"get obj: {data}")
-			# client.send_message("/detect", [classes[i], age[i]])
+			frame=self.queue.get()
+			if frame is None:
+				continue
 
-		time.sleep(1)
+			# with print_lock:
+			with result_lock:
+				# self.result.clear()
+				result=[]
+				image = Image.fromarray(frame)
+				boxes, classes, scores=self.yolo.detect_image(image)
+
+				class_count={}
+				# print(f"new obj detect frame! #{len(classes)}")
+				for i in range(len(classes)):
+					ind=classes[i]
+					if class_count.get(ind)==None:
+						class_count[ind]=1
+					else:
+						class_count[ind]=class_count[ind]+1
+
+				for i, box in enumerate(boxes):
+					# label = f"{classes[i]}, {scores[i]}"
+					data=[classes[i], int(box[0]), int(box[1]),int(box[2]-box[0]), int(box[3]-box[1]), float(scores[i]), int(i), int(class_count[classes[i]])]
+					result.append(data)
+				# print(f"detect= {len(self.result)}")
+			self.output.put(result)
+
 
 
 def draw_predict(img, point, size, label, color):
@@ -113,6 +189,8 @@ def draw_predict(img, point, size, label, color):
 	cv2.putText(img, label, (int(x), int(y)), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
 
 def main():
+
+	global DETECT_FACE, DETECT_EMOTION, DETECT_OBJ, USE_THREAD, USE_SPOUT
 
 	if not USE_SPOUT:
 		video_capture = cv2.VideoCapture(0)
@@ -155,16 +233,22 @@ def main():
 	# if DETECT_OBJ:
 	# 	yolo = YOLO_np(yolo_config)
 
-	threads=[]
-	q1=Queue()
-	threads.append(DetectFace(q1))
-	threads[0].start()
-	time.sleep(0.1)
+	
+	if DETECT_FACE:
+		face_queue=Queue()
+		detectFace=DetectFace(face_queue)
+		detectFace.start()
 
-	q2=Queue()
-	threads.append(DetectObj(q2))
-	threads[1].start()
-	time.sleep(0.1)
+	if DETECT_EMOTION:
+		emotion_queue=Queue()
+		detectEmotion=DetectEmotion(emotion_queue)
+		detectEmotion.start()
+
+	if DETECT_OBJ:
+		obj_queue=Queue()
+		obj_result=Queue()
+		detectObj=DetectObj(obj_queue)
+		detectObj.start()
 
 	accum_time = 0
 	curr_fps = 0
@@ -183,8 +267,13 @@ def main():
 		else:
 			ret, frame = video_capture.read()
 		
+		
+		gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+		faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+
+
 		if DETECT_FACE:
-			thread[0].queue.put(frame)
+			face_queue.put((frame,faces))
 			# faces, ages, genders=face_detect.detect_face_frame(frame)
 
 			# for i, face in enumerate(faces):
@@ -194,8 +283,12 @@ def main():
 			# 	client.send_message("/face", [int(face[0]),int(face[1]),int(face[2]),int(face[3]),gender, ages[i]])
 			# print(f"Find {len(faces)} faces")
 		
+		if DETECT_EMOTION:
+			emotion_queue.put((frame,faces))
+			
+
 		if DETECT_OBJ:
-			thread[1].queue.put(frame)
+			obj_queue.put(frame)
 			# image = Image.fromarray(frame)
 			# boxes, classes, scores=yolo.detect_image(image)
 
@@ -215,26 +308,70 @@ def main():
 			# 	client.send_message("/detect", [classes[i], age[i]])
 			# print(f"#obj={len(boxes)}")
 
-		for t in threads:
-			t.join()
+		if DETECT_EMOTION:
+			tmp_emotion=detectEmotion.result.get()
+
+		if DETECT_FACE:
+			# print(detectFace.result.qsize())
+			tmp_face=detectFace.result.get()
+			for i, result in enumerate(tmp_face):
+				label=f"id= {result[6]}: {result[4]}, {result[5]}"
+			
+				#combine emotion
+				if DETECT_EMOTION:
+					label+=f", {tmp_emotion[i][4]}, {tmp_emotion[i][5]}"
+
+				draw_predict(frame, (result[0], result[1]),(result[2],result[3]), label, (0,255,0))
+
+
+		if DETECT_OBJ:
+			# with result_lock:
+			tmp=detectObj.output.get()
+			if tmp:
+			# print(f"obj result= {len(detectObj.result)}")
+				for i, result in enumerate(tmp):
+					# print(result)
+					label=f"{result[0]},{result[5]} {result[6]}//{result[7]}"
+					draw_predict(frame, (result[1], result[2]),(result[3],result[4]), label, (255,255,0))
+			# detectObj.result.clear()
+			
 
 		# fps
 		curr_time = timer()
 		exec_time = curr_time - prev_time
 		prev_time = curr_time
 		curr_fps = 1/ exec_time
-		cv2.putText(frame, text=f"fps= {curr_fps}", org=(3, 15), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.50, color=(255, 0, 0), thickness=2)
+		cv2.putText(frame, text=f"fps= {curr_fps}", org=(3, 15), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.50, color=(255, 255, 255), thickness=2)
 
 		cv2.imshow('_Run', frame)
 
-		if cv2.waitKey(5) == 27:  # ESC key press
+		key=cv2.waitKey(1)
+
+		if key == 27:  # ESC key press
 			break
+		elif key==ord('a'):
+			DETECT_FACE=not DETECT_FACE
+			
+		elif key==ord('s'):
+			DETECT_EMOTION=not DETECT_EMOTION
+
+		elif key==ord('d'):
+			DETECT_OBJ=not DETECT_OBJ
+			
+		elif key==ord('t'):
+			USE_THREAD=not USE_THREAD
+
 	
 	if not USE_SPOUT:
 		video_capture.release()
 	else:
 		spoutReceiver.ReleaseReceiver()
 	cv2.destroyAllWindows()
+	
+	detectEmotion.join()
+	detectFace.join()
+	detectObj.join()
+
 	
 
 if __name__ == "__main__":
