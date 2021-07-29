@@ -31,17 +31,17 @@ from yolo import *
 
 DETECT_FACE=True
 DETECT_EMOTION=True
-DETECT_OBJ=True
+DETECT_OBJ=False
 
 USE_THREAD=True
 
-USE_SPOUT=False
+USE_SPOUT=True
 
 
 #-----------------------------
 # osc initialization
 IP="127.0.0.1"
-PORT=5555
+PORT=5566
 client=udp_client.SimpleUDPClient(IP, PORT)
 #-----------------------------
 
@@ -323,43 +323,6 @@ def main():
 											scaleFactor=1.3,
                                             minNeighbors=5,)
                                             # minSize=(64,64),)
-		# print(f"faces {faces}")
-
-		# if DETECT_FACE:
-		# 	face_queue.put((frame,faces))
-		# 	# faces, ages, genders=face_detect.detect_face_frame(frame)
-
-		# 	# for i, face in enumerate(faces):
-		# 	# 	gender = "F" if genders[i][0]>0.5 else "M"
-		# 	# 	label = f"{int(ages[i])},{gender}"
-		# 	# 	draw_predict(frame, (face[0], face[1]), (face[2], face[3]), label,(255,0,0))
-		# 	# 	client.send_message("/face", [int(face[0]),int(face[1]),int(face[2]),int(face[3]),gender, ages[i]])
-		# 	# print(f"Find {len(faces)} faces")
-		
-		# if DETECT_EMOTION:
-		# 	emotion_queue.put((frame,faces))
-			
-
-		# if DETECT_OBJ:
-		# 	obj_queue.put(frame)
-			# image = Image.fromarray(frame)
-			# boxes, classes, scores=yolo.detect_image(image)
-
-			# class_count={}
-			# for i in range(classes):
-			# 	ind=int(classes[i])
-			# 	if class_count.get(ind)==None:
-			# 		class_count[ind]=1
-			# 	else:
-			# 		class_count[ind]=class_count[ind]+1
-
-			# for i, box in enumerate(boxes):
-			# 	label = f"{classes[i]}, {scores[i]}"
-			# 	draw_predict(frame, (box[0], box[1]),(box[2]-box[0],box[3]-box[1]), label, (0,0,255))
-				
-			# 	data=[classes[i], int(box[0]), int(box[2]),int(box[1]), int(box[3]), float(score[i]), int(i), int(class_count[i])]
-			# 	client.send_message("/detect", [classes[i], age[i]])
-			# print(f"#obj={len(boxes)}")
 
 		print('------------')
 		if DETECT_OBJ:
@@ -382,7 +345,7 @@ def main():
 				# 		person_rect.append(p['rect'])
 				# 	print(f"person{person_rect}")
 					# print(f"#person= {len(person_rect)}")
-
+ 
 		if DETECT_EMOTION:
 			tmp_emotion=detectEmotion.result
 
