@@ -8,7 +8,7 @@ import pygame
 import threading
 import time
 import multiprocessing
-# import SpoutSDK
+import SpoutSDK
 
 from queue import Queue, LifoQueue
 from multiprocessing import Pipe, Process
@@ -77,15 +77,16 @@ person=[]
 
 
 class DetectFace(threading.Thread):
-	def __init__(self,queue):
+	def __init__(self,queue, stop_event):
 		threading.Thread.__init__(self)
 		print("Init Face Detect...")
 		self.face_detect = FaceCV(depth=16, width=8)
 		self.result=[]
 		self.queue=queue
+		self.stop_event=stop_event
 
 	def run(self):
-		while True:
+		while not self.stop_event.is_set():
 			global frame, faces, person_rect
 			# input_faces=self.queue.get()
 			if frame is None or len(faces)<1:
@@ -114,7 +115,7 @@ class DetectFace(threading.Thread):
 			self.result=result
 
 class DetectEmotion(threading.Thread):
-	def __init__(self,queue):
+	def __init__(self,queue, stop_event):
 		threading.Thread.__init__(self)
 		print("Init Emotion Detect...")
 		self.emotion_model = model_from_json(open("../model/facial_expression_model_structure.json", "r").read())
@@ -123,9 +124,10 @@ class DetectEmotion(threading.Thread):
 		# self.face_cascade = cv2.CascadeClassifier('../model/haarcascade_frontalface_default.xml')
 		self.queue=queue
 		self.result=[]
+		self.stop_event=stop_event
 
 	def run(self):
-		while True:
+		while not self.stop_event.is_set():
 			global frame, faces, person_rect
 			# (frame, faces)=self.queue.get()
 			if frame is None or len(faces)<1:
@@ -283,15 +285,16 @@ def main():
 	# if DETECT_OBJ:
 	# 	yolo = YOLO_np(yolo_config)
 
+	stop_event=threading.Event()
 	
 	if DETECT_FACE:
 		face_queue=Queue()
-		detectFace=DetectFace(face_queue)
+		detectFace=DetectFace(face_queue, stop_event)
 		detectFace.start()
 
 	if DETECT_EMOTION:
 		emotion_queue=Queue()
-		detectEmotion=DetectEmotion(emotion_queue)
+		detectEmotion=DetectEmotion(emotion_queue, stop_event)
 		detectEmotion.start()
 
 	if DETECT_OBJ:
@@ -324,7 +327,7 @@ def main():
                                             minNeighbors=5,)
                                             # minSize=(64,64),)
 
-		print('------------')
+		# print('------------')
 		if DETECT_OBJ:
 			with result_lock:
 				tmp=detectObj.output
@@ -409,9 +412,11 @@ def main():
 		spoutReceiver.ReleaseReceiver()
 	cv2.destroyAllWindows()
 	
+	stop_event.set()
 	detectEmotion.join()
 	detectFace.join()
-	detectObj.join()
+	if DETECT_OBJ:
+		detectObj.join()
 
 	
 
